@@ -128,7 +128,7 @@ DeskOps utilizes a decoupled, layered client-server architecture with an asynchr
 
 ### 3.1 Component Responsibilities
 1. **React Web Client (`client`):** Single-page application built on React 18, Vite, and TypeScript. Leverages TanStack Query for server-state caching, React Hook Form with Zod for client validation, Tailwind CSS for accessible responsive layouts, and Socket.io-client for live ticket timeline feeds.
-2. **Express API Server (`server`):** Node.js 22 Express application organized in a strict 3-tier layered architecture (`Routes -> Services -> Repositories`). Terminates TLS, validates JWT tokens, resolves tenant context, enforces role-based access control (RBAC), and dispatches background tasks.
+2. **Express API Server (`server`):** Node.js 22 Express application organized in a strict 3-tier layered architecture (`Routes -> Services -> Repositories`). Operating behind the deployment/reverse-proxy layer (where HTTPS is handled), it validates JWT tokens, resolves tenant context, enforces role-based access control (RBAC), and dispatches background tasks.
 3. **Database Layer (PostgreSQL + Prisma ORM):** Primary transactional datastore hosted on Neon or Supabase free tier. Enforces multi-tenant data isolation through foreign keys, composite unique constraints (`[organisationId, ...]`), transaction boundaries, and pessimistic row-level locking for concurrent writes.
 4. **Caching & Message Broker (Redis via Upstash / Local Docker):** High-throughput broker managing BullMQ job queues, API rate-limiting buckets, real-time Socket.io pub/sub adapters, and JWT revocation blacklists.
 5. **Worker Daemon (`worker`):** Isolated Node.js runtime consuming BullMQ queues. Executes asynchronous and CPU-bound workloads (image resizing/thumbnail generation via Sharp, inbound email webhook normalization, outbound email dispatch, and dead-letter queue handling).
@@ -324,10 +324,10 @@ Database Execution (PostgreSQL)
 ## 7. Authentication & Authorization (RBAC — NFR-02)
 
 ### 7.1 Authentication Architecture
-- **Password Storage:** Passwords hashed using **Argon2id** (memory cost: 65536 KiB, time cost: 3 iterations, parallelism: 4) with cryptographic salt generation.
+- **Password Storage:** Passwords hashed using **Argon2id** (proposed implementation parameters: memory cost: 65536 KiB, time cost: 3 iterations, parallelism: 4 — to be finalized before implementation) or bcrypt with cryptographic salt generation per NFR-07.
 - **Session Tokens:**
-  - **Access Token:** Short-lived JWT (15-minute expiry) containing `{ sub: userId, orgId: organisationId, role: roleCode }`. Sent via Authorization Bearer header.
-  - **Refresh Token:** Long-lived cryptographically secure random token (7-day expiry) stored in an `httpOnly`, `Secure`, `SameSite=Strict` cookie and indexed in the database/Redis with family tracking.
+  - **Access Token:** Short-lived JWT (15-minute expiry — proposed implementation value to be finalized) containing `{ sub: userId, orgId: organisationId, role: roleCode }`. Sent via Authorization Bearer header.
+  - **Refresh Token:** Long-lived cryptographically secure random token (7-day expiry — proposed implementation value to be finalized) stored in an `httpOnly`, `Secure`, `SameSite=Strict` cookie and indexed in the database/Redis with family tracking.
 - **Refresh Token Rotation (RTR):** Every refresh invocation invalidates the supplied refresh token and issues a new pair. If a revoked refresh token is replayed, the entire token family for that user session is immediately terminated (indicating potential token theft).
 - **Logout & Revocation:** Logout invalidates the active refresh token and blacklists the current JWT `jti` in Redis until its natural expiration.
 - **User Invitations:** Managed by Engineer A; allows administrators to invite new staff and residents via time-limited, signed invitation tokens.
@@ -377,23 +377,31 @@ Reopening is supported inside a configurable window. Any state transition not ex
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NEW: Resident submits request (Mandatory)
-    NEW --> TRIAGED: Admin triages & categorizes (Mandatory)
-    TRIAGED --> ASSIGNED: Admin assigns technician (Mandatory)
-    ASSIGNED --> IN_PROGRESS: Technician begins work (Mandatory)
-    IN_PROGRESS --> ON_HOLD: Awaiting parts/access (Mandatory)
-    ON_HOLD --> IN_PROGRESS: Work resumes (Mandatory)
-    IN_PROGRESS --> RESOLVED: Work marked completed (Mandatory)
-    RESOLVED --> CLOSED: Resolution finalized (Mandatory)
-    RESOLVED --> IN_PROGRESS: Reopen within configurable window (Mandatory)
+    direction TB
 
-    note right of NEW
+    state "Mandatory Lifecycle (FR-1.02 Baseline)" as MandatoryFlow {
+        [*] --> NEW: Resident submits request
+        NEW --> TRIAGED: Admin triages & categorizes
+        TRIAGED --> ASSIGNED: Admin assigns technician
+        ASSIGNED --> IN_PROGRESS: Technician begins work
+        IN_PROGRESS --> ON_HOLD: Awaiting parts/access
+        ON_HOLD --> IN_PROGRESS: Work resumes
+        IN_PROGRESS --> RESOLVED: Work marked completed
+        RESOLVED --> CLOSED: Resolution finalized
+        RESOLVED --> IN_PROGRESS: Reopen within configurable window
+    }
+
+    note right of MandatoryFlow
       Proposed Transitions
-      (Subject to mentor/team confirmation)
+      (Subject to mentor/team confirmation):
+      • NEW ──> CLOSED (Invalid / Merge CR-1)
+      • TRIAGED ──> CLOSED (Early cancellation)
+      • CLOSED ──> IN_PROGRESS (Direct reopen)
     end note
-    NEW --> CLOSED: [Proposed] Early closure / invalid / merge
+
+    NEW --> CLOSED: [Proposed] Early closure / merge CR-1
     TRIAGED --> CLOSED: [Proposed] Early cancellation
-    CLOSED --> IN_PROGRESS: [Proposed] Reopen from CLOSED state
+    CLOSED --> IN_PROGRESS: [Proposed] Direct reopen
 ```
 
 ### 8.2 State Transition Matrix
@@ -458,9 +466,9 @@ Client                     Express API                  S3 / R2 Storage         
 
 - **Validation Rules:**
   - Allowed MIME Types: `image/jpeg`, `image/png`, `image/webp`, `application/pdf`.
-  - File Size Limit: Maximum 10 MB per file.
+  - File size limit: TBD — exact limit to be confirmed before implementation.
   - Server-side verification: The confirmation endpoint checks `Content-Length` and headers via an S3 `HeadObject` call before activating the record.
-- **Worker Thumbnail Generation:** Image uploads trigger a BullMQ job that fetches the original, runs Sharp to generate a 300x300 thumbnail (`webp`), stores it at `thumbnails/<orgId>/<uuid>.webp`, and updates `thumbnailStorageKey`.
+- **Worker Thumbnail Generation:** Image uploads trigger a BullMQ job that fetches the original, runs Sharp to generate a thumbnail (300x300 WebP — proposed implementation value — subject to confirmation), stores it at `thumbnails/<orgId>/<uuid>.webp`, and updates `thumbnailStorageKey`.
 
 ### 9.2 FR-1.05 Email-to-Ticket Integration
 Allows residents to log and reply to tickets using their standard email clients without requiring direct web portal access.
