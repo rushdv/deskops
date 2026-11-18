@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deskops-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-deskops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deskops_password}
+      POSTGRES_DB: ${POSTGRES_DB:-deskops_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deskops} -d ${POSTGRES_DB:-deskops_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: deskops-server
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      CLIENT_URL: http://localhost:80
+      DATABASE_URL: postgresql://${POSTGRES_USER:-deskops}:${POSTGRES_PASSWORD:-deskops_password}@postgres:5432/${POSTGRES_DB:-deskops_db}?schema=public
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: deskops-client
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  postgres_data:
