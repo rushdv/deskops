@@ -2,7 +2,7 @@
 
 DeskOps is an enterprise multi-tenant service desk and maintenance ticketing platform built for property and facilities management operations.
 
-## Project Structure
+## Project Structure 
 
 ```text
 deskops/
