@@ -1,0 +1,37 @@
+name: DeskOps CI Pipeline
+
+on:
+  push:
+    branches: [main, feat/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Build & Validate Foundation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate Server Build
+        run: |
+          cd server
+          npm ci
+          npm run build
+
+      - name: Validate Client Build
+        run: |
+          cd client
+          npm ci
+          npm run build
+
+      - name: Validate Docker Compose Configuration
+        run: |
+          docker compose config
