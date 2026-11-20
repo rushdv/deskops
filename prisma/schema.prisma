@@ -1,0 +1,360 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum RoleName {
+  ORGANISATION_ADMIN
+  TECHNICIAN
+  RESIDENT
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  NEW
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+enum TicketEventType {
+  STATUS_CHANGE
+  ASSIGNMENT
+  COMMENT_ADDED
+  ATTACHMENT_ADDED
+  TICKET_MERGED
+}
+
+enum CommentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
+enum AttachmentStatus {
+  PENDING_UPLOAD
+  ACTIVE
+  REJECTED
+}
+
+enum TechTradeSkill {
+  PLUMBING
+  ELECTRICAL
+  HVAC
+  CARPENTRY
+  LOCKSMITH
+  GENERAL_MAINTENANCE
+}
+
+// -----------------------------------------------------------------------------
+// Core Multi-Tenant & RBAC Models
+// -----------------------------------------------------------------------------
+
+model Organisation {
+  id                 String     @id @default(uuid())
+  name               String
+  slug               String     @unique
+  reopenWindowHours  Int        @default(24)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  properties         Property[]
+  units              Unit[]
+  users              User[]
+  residentProfiles   ResidentProfile[]
+  technicianProfiles TechnicianProfile[]
+  tickets            Ticket[]
+  ticketEvents       TicketEvent[]
+  comments           Comment[]
+  attachments        Attachment[]
+  watchers           Watcher[]
+  notifications      Notification[]
+
+  @@map("organisations")
+}
+
+model Role {
+  id          String    @id @default(uuid())
+  name        RoleName  @unique
+  description String?
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  id              String            @id @default(uuid())
+  organisationId  String
+  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  email           String
+  passwordHash    String
+  name            String
+  roleId          String
+  role            Role              @relation(fields: [roleId], references: [id])
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  residentProfile    ResidentProfile?
+  technicianProfile  TechnicianProfile?
+  createdTickets     Ticket[]          @relation("CreatedTickets")
+  assignedTickets    Ticket[]          @relation("AssignedTickets")
+  ticketEvents       TicketEvent[]
+  comments           Comment[]
+  attachments        Attachment[]
+  watchers           Watcher[]
+  notifications      Notification[]
+
+  @@unique([organisationId, email])
+  @@index([organisationId])
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// Property & Physical Asset Structure
+// -----------------------------------------------------------------------------
+
+model Property {
+  id             String                       @id @default(uuid())
+  organisationId String
+  organisation   Organisation                 @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  name           String
+  code           String
+  address        String
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  units          Unit[]
+  technicians    PropertyTechnicianCoverage[]
+  tickets        Ticket[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@map("properties")
+}
+
+model Unit {
+  id             String            @id @default(uuid())
+  organisationId String
+  organisation   Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitNumber     String
+  floor          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  residents      ResidentProfile[]
+  tickets        Ticket[]
+
+  @@unique([propertyId, unitNumber])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("units")
+}
+
+model ResidentProfile {
+  id               String       @id @default(uuid())
+  organisationId   String
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userId           String       @unique
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unitId           String
+  unit             Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  leaseStart       DateTime?
+  leaseEnd         DateTime?
+  emergencyContact String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([organisationId])
+  @@index([unitId])
+  @@map("resident_profiles")
+}
+
+model TechnicianProfile {
+  id               String                       @id @default(uuid())
+  organisationId   String
+  organisation     Organisation                 @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userId           String                       @unique
+  user             User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone            String?
+  maxActiveTickets Int                          @default(5)
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  skills           TechnicianSkill[]
+  coverages        PropertyTechnicianCoverage[]
+
+  @@index([organisationId])
+  @@map("technician_profiles")
+}
+
+model TechnicianSkill {
+  id           String            @id @default(uuid())
+  technicianId String
+  technician   TechnicianProfile @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  skill        TechTradeSkill
+  createdAt    DateTime          @default(now())
+
+  @@unique([technicianId, skill])
+  @@map("technician_skills")
+}
+
+model PropertyTechnicianCoverage {
+  id           String            @id @default(uuid())
+  technicianId String
+  technician   TechnicianProfile @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  propertyId   String
+  property     Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt    DateTime          @default(now())
+
+  @@unique([technicianId, propertyId])
+  @@map("property_technician_coverages")
+}
+
+// -----------------------------------------------------------------------------
+// Ticketing Core & Lifecycle Tracking
+// -----------------------------------------------------------------------------
+
+model Ticket {
+  id                   String         @id @default(uuid())
+  ticketNumber         String
+  organisationId       String
+  organisation         Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  propertyId           String
+  property             Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId               String
+  unit                 Unit           @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdById          String
+  createdBy            User           @relation("CreatedTickets", fields: [createdById], references: [id])
+  assignedTechnicianId String?
+  assignedTechnician   User?          @relation("AssignedTickets", fields: [assignedTechnicianId], references: [id])
+  title                String
+  description          String
+  category             String
+  priority             TicketPriority @default(MEDIUM)
+  status               TicketStatus   @default(NEW)
+  mergedIntoTicketId   String?
+  resolvedAt           DateTime?
+  closedAt             DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  events               TicketEvent[]
+  comments             Comment[]
+  attachments          Attachment[]
+  watchers             Watcher[]
+
+  @@unique([organisationId, ticketNumber])
+  @@index([organisationId, status])
+  @@index([assignedTechnicianId])
+  @@index([propertyId])
+  @@index([unitId])
+  @@map("tickets")
+}
+
+model TicketEvent {
+  id             String          @id @default(uuid())
+  organisationId String
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  ticketId       String
+  ticket         Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId        String
+  actor          User            @relation(fields: [actorId], references: [id])
+  eventType      TicketEventType
+  fromStatus     TicketStatus?
+  toStatus       TicketStatus?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+
+  @@index([organisationId])
+  @@index([ticketId, createdAt])
+  @@map("ticket_events")
+}
+
+model Comment {
+  id             String            @id @default(uuid())
+  organisationId String
+  organisation   Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  ticketId       String
+  ticket         Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User              @relation(fields: [authorId], references: [id])
+  visibility     CommentVisibility @default(PUBLIC)
+  content        String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([organisationId])
+  @@index([ticketId, createdAt])
+  @@map("comments")
+}
+
+model Attachment {
+  id                  String           @id @default(uuid())
+  organisationId      String
+  organisation        Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  ticketId            String
+  ticket              Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploaderId          String
+  uploader            User             @relation(fields: [uploaderId], references: [id])
+  fileName            String
+  fileSize            Int
+  mimeType            String
+  storageKey          String
+  thumbnailStorageKey String?
+  status              AttachmentStatus @default(PENDING_UPLOAD)
+  createdAt           DateTime         @default(now())
+
+  @@index([organisationId])
+  @@index([ticketId])
+  @@map("attachments")
+}
+
+model Watcher {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  ticketId       String
+  ticket         Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([ticketId, userId])
+  @@index([organisationId])
+  @@map("watchers")
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  recipientId    String
+  recipient      User         @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  ticketId       String?
+  title          String
+  message        String
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([organisationId, recipientId, isRead])
+  @@map("notifications")
+}
