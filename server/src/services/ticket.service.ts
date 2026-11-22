@@ -235,12 +235,28 @@ export class TicketService {
     }
 
     return prisma.$transaction(async (tx) => {
-      const updated = await tx.ticket.update({
-        where: { id: ticketId },
+      // Atomic conditional update to prevent race conditions (NFR-03, AC-1.2)
+      // Only a ticket currently in TRIAGED status can transition to ASSIGNED
+      const updateResult = await tx.ticket.updateMany({
+        where: {
+          id: ticketId,
+          organisationId: tenant.organisationId,
+          status: TicketStatus.TRIAGED,
+        },
         data: {
           assignedTechnicianId,
           status: TicketStatus.ASSIGNED,
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new Error(
+          'ERR_ILLEGAL_STATE_TRANSITION: Ticket cannot be assigned. It is either already assigned, closed, or not in TRIAGED status.'
+        );
+      }
+
+      const updated = await tx.ticket.findUniqueOrThrow({
+        where: { id: ticketId },
         include: { property: true, unit: true, assignedTechnician: true },
       });
 
@@ -250,7 +266,7 @@ export class TicketService {
           ticketId: ticket.id,
           actorId: user.userId,
           eventType: TicketEventType.ASSIGNMENT,
-          fromStatus: ticket.status,
+          fromStatus: TicketStatus.TRIAGED,
           toStatus: TicketStatus.ASSIGNED,
           metadata: {
             assignedTechnicianId,
