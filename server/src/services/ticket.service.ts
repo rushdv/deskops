@@ -2,6 +2,7 @@ import { TicketStatus, TicketPriority, TicketEventType, RoleName, Prisma } from 
 import prisma from '../lib/prisma.js';
 import { UserSessionPayload, TenantContext } from '../types/auth.js';
 import { TicketStateMachine } from './ticketStateMachine.js';
+import { RuleInterceptor } from './ruleInterceptor.js';
 
 export interface CreateTicketDTO {
   propertyId: string;
@@ -44,6 +45,13 @@ export class TicketService {
       throw new Error('Selected property or unit not found in your organisation.');
     }
 
+    const ruleResult = RuleInterceptor.applyCreationRules({
+      title: dto.title,
+      description: dto.description,
+      category: dto.category,
+      priority: dto.priority,
+    });
+
     const ticketNumber = await this.generateTicketNumber(tenant.organisationId);
 
     return prisma.$transaction(async (tx) => {
@@ -57,7 +65,7 @@ export class TicketService {
           title: dto.title,
           description: dto.description,
           category: dto.category,
-          priority: dto.priority || TicketPriority.MEDIUM,
+          priority: ruleResult.modifiedPriority,
           status: TicketStatus.NEW,
         },
         include: {
@@ -78,7 +86,9 @@ export class TicketService {
           toStatus: TicketStatus.NEW,
           metadata: {
             reason: 'Ticket created',
-            initialPriority: ticket.priority,
+            initialPriority: dto.priority || TicketPriority.MEDIUM,
+            evaluatedPriority: ruleResult.modifiedPriority,
+            appliedRules: ruleResult.appliedRules,
           },
         },
       });
@@ -340,6 +350,136 @@ export class TicketService {
       });
 
       return updated;
+    });
+  }
+
+  /**
+   * CR-1: Duplicate Ticket Merge (AC-1.4)
+   * Merges a duplicate ticket into a primary ticket within the same tenant.
+   * Reassociates comments and watchers, closes the duplicate, and records TICKET_MERGED events.
+   */
+  static async mergeTickets(
+    tenant: TenantContext,
+    user: UserSessionPayload,
+    primaryTicketId: string,
+    duplicateTicketId: string,
+    reason?: string
+  ) {
+    if (primaryTicketId === duplicateTicketId) {
+      throw new Error('ERR_VALIDATION_FAILED: Cannot merge a ticket into itself.');
+    }
+
+    // 1. Fetch both tickets and ensure tenant isolation
+    const [primaryTicket, duplicateTicket] = await Promise.all([
+      prisma.ticket.findFirst({
+        where: { id: primaryTicketId, organisationId: tenant.organisationId },
+      }),
+      prisma.ticket.findFirst({
+        where: { id: duplicateTicketId, organisationId: tenant.organisationId },
+      }),
+    ]);
+
+    if (!primaryTicket) {
+      throw new Error('Primary ticket not found in your organisation.');
+    }
+
+    if (!duplicateTicket) {
+      throw new Error('Duplicate ticket not found in your organisation.');
+    }
+
+    if (duplicateTicket.status === TicketStatus.CLOSED) {
+      throw new Error('ERR_ILLEGAL_STATE_TRANSITION: Duplicate ticket is already CLOSED.');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // 2. Reassociate all comments from duplicate ticket to primary ticket
+      await tx.comment.updateMany({
+        where: { ticketId: duplicateTicketId },
+        data: { ticketId: primaryTicketId },
+      });
+
+      // 3. Reassociate watchers (avoiding unique constraint collision)
+      const duplicateWatchers = await tx.watcher.findMany({
+        where: { ticketId: duplicateTicketId },
+      });
+      const primaryWatchers = await tx.watcher.findMany({
+        where: { ticketId: primaryTicketId },
+      });
+      const primaryWatcherUserIds = new Set(primaryWatchers.map((w) => w.userId));
+
+      for (const dw of duplicateWatchers) {
+        if (!primaryWatcherUserIds.has(dw.userId)) {
+          await tx.watcher.create({
+            data: {
+              organisationId: tenant.organisationId,
+              ticketId: primaryTicketId,
+              userId: dw.userId,
+            },
+          });
+        }
+      }
+
+      // Remove old watchers from duplicate ticket
+      await tx.watcher.deleteMany({
+        where: { ticketId: duplicateTicketId },
+      });
+
+      // 4. Close duplicate ticket
+      const closedDuplicate = await tx.ticket.update({
+        where: { id: duplicateTicketId },
+        data: {
+          status: TicketStatus.CLOSED,
+          closedAt: new Date(),
+        },
+      });
+
+      // 5. Append immutable TICKET_MERGED events on both tickets (AC-1.4)
+      await tx.ticketEvent.create({
+        data: {
+          organisationId: tenant.organisationId,
+          ticketId: duplicateTicketId,
+          actorId: user.userId,
+          eventType: TicketEventType.TICKET_MERGED,
+          fromStatus: duplicateTicket.status,
+          toStatus: TicketStatus.CLOSED,
+          metadata: {
+            mergedIntoTicketId: primaryTicket.id,
+            mergedIntoTicketNumber: primaryTicket.ticketNumber,
+            reason: reason || 'Merged as duplicate',
+          },
+        },
+      });
+
+      await tx.ticketEvent.create({
+        data: {
+          organisationId: tenant.organisationId,
+          ticketId: primaryTicketId,
+          actorId: user.userId,
+          eventType: TicketEventType.TICKET_MERGED,
+          metadata: {
+            mergedDuplicateTicketId: duplicateTicket.id,
+            mergedDuplicateTicketNumber: duplicateTicket.ticketNumber,
+            reason: reason || 'Merged duplicate ticket into this ticket',
+          },
+        },
+      });
+
+      // 6. Return primary ticket with full relations
+      const updatedPrimary = await tx.ticket.findUniqueOrThrow({
+        where: { id: primaryTicketId },
+        include: {
+          property: true,
+          unit: true,
+          assignedTechnician: true,
+          comments: { orderBy: { createdAt: 'asc' } },
+          events: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      return {
+        primaryTicket: updatedPrimary,
+        duplicateTicket: closedDuplicate,
+      };
     });
   }
 }
