@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from './services/api.service';
-import { Ticket, Property, TechnicianSummary, UserSession, TicketStatus, TicketPriority } from './types';
+import { Ticket, TicketComment, CommentVisibility, Property, TechnicianSummary, UserSession, TicketStatus, TicketPriority } from './types';
+//import { Ticket, Property, TechnicianSummary, UserSession, TicketStatus, TicketPriority } from './types';
+
+
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
@@ -16,6 +19,13 @@ export const App: React.FC = () => {
   const [showAssignModal, setShowAssignModal] = useState<Ticket | null>(null);
   const [showResolveModal, setShowResolveModal] = useState<Ticket | null>(null);
   const [showTimelineModal, setShowTimelineModal] = useState<Ticket | null>(null);
+
+  //showTimelineModal
+  const [commentsModalTicket, setCommentsModalTicket] = useState<Ticket | null>(null);
+  const [ticketComments, setTicketComments] = useState<TicketComment[]>([]);
+  const [commentText, setCommentText] = useState<string>('');
+  const [commentVisibility, setCommentVisibility] = useState<CommentVisibility>('PUBLIC');
+  const [commentsLoading, setCommentsLoading] = useState<boolean>(false);
 
   // Form inputs
   const [newTicket, setNewTicket] = useState({
@@ -148,6 +158,44 @@ export const App: React.FC = () => {
       setShowTimelineModal(detail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to view timeline');
+    }
+  };
+  //added
+  const openCommentsModal = async (ticket: Ticket) => {
+    setError(null);
+    setCommentsModalTicket(ticket);
+    setCommentText('');
+    setCommentVisibility('PUBLIC');
+    setCommentsLoading(true);
+    try {
+      const list = await api.getTicketComments(ticket.id);
+      setTicketComments(list);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load comments');
+    } finally {
+      setCommentsLoading(false);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentsModalTicket || !commentText.trim()) return;
+    setCommentsLoading(true);
+    setError(null);
+    try {
+      const effectiveVisibility: CommentVisibility =
+        currentUser?.role === 'RESIDENT' ? 'PUBLIC' : commentVisibility;
+      await api.createTicketComment(commentsModalTicket.id, {
+        content: commentText.trim(),
+        visibility: effectiveVisibility,
+      });
+      setCommentText('');
+      const updatedList = await api.getTicketComments(commentsModalTicket.id);
+      setTicketComments(updatedList);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to post comment');
+    } finally {
+      setCommentsLoading(false);
     }
   };
 
@@ -581,7 +629,22 @@ export const App: React.FC = () => {
                             </button>
                           </>
                         )}
-
+                          {/* Ticket Comments */}
+  <button
+    onClick={() => openCommentsModal(t)}
+    style={{
+      padding: '0.3rem 0.6rem',
+      borderRadius: '4px',
+      border: '1px solid #2563eb',
+      backgroundColor: '#eff6ff',
+      color: '#1d4ed8',
+      fontSize: '0.75rem',
+      fontWeight: 600,
+      cursor: 'pointer',
+    }}
+  >
+    💬 Comments
+  </button>
                         {/* Timeline Audit Viewer */}
                         <button
                           onClick={() => viewTimeline(t)}
@@ -890,6 +953,118 @@ export const App: React.FC = () => {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+      //ticket
+      {/* --- MODAL: Ticket Comments --- */}
+      {commentsModalTicket && (
+        <div style={modalBackdropStyle}>
+          <div style={{ ...modalContentStyle, maxWidth: '560px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>
+                Comments &bull; {commentsModalTicket.ticketNumber}
+              </h3>
+              <button
+                onClick={() => {
+                  setCommentsModalTicket(null);
+                  setTicketComments([]);
+                  setCommentText('');
+                }}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ maxHeight: '280px', overflowY: 'auto', marginBottom: '1.25rem', paddingRight: '0.25rem' }}>
+              {commentsLoading && ticketComments.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '0.875rem' }}>Loading comments...</div>
+              ) : ticketComments.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '0.875rem', padding: '0.75rem 0' }}>
+                  No comments yet on this ticket.
+                </div>
+              ) : (
+                ticketComments.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      padding: '0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: c.visibility === 'INTERNAL' ? '#fffbeb' : '#f8fafc',
+                      marginBottom: '0.65rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#64748b' }}>
+                      <span>
+                        <strong>{c.author.name}</strong> &bull; {new Date(c.createdAt).toLocaleString()}
+                      </span>
+                      <span
+                        style={{
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '9999px',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          backgroundColor: c.visibility === 'INTERNAL' ? '#fef3c7' : '#e0f2fe',
+                          color: c.visibility === 'INTERNAL' ? '#92400e' : '#0369a1',
+                        }}
+                      >
+                        {c.visibility}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: '0.35rem', fontSize: '0.875rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>
+                      {c.content}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={handleAddComment}>
+              {currentUser?.role !== 'RESIDENT' && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <label style={labelStyle}>Visibility</label>
+                  <select
+                    value={commentVisibility}
+                    onChange={(e) => setCommentVisibility(e.target.value as CommentVisibility)}
+                    style={inputStyle}
+                  >
+                    <option value="PUBLIC">PUBLIC (Visible to Resident & Staff)</option>
+                    <option value="INTERNAL">INTERNAL (Staff Only)</option>
+                  </select>
+                </div>
+              )}
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={labelStyle}>Add Comment</label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Write an update or note..."
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommentsModalTicket(null);
+                    setTicketComments([]);
+                    setCommentText('');
+                  }}
+                  style={secondaryBtnStyle}
+                >
+                  Close
+                </button>
+                <button type="submit" disabled={commentsLoading} style={primaryBtnStyle}>
+                  {commentsLoading ? 'Posting...' : 'Post Comment'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

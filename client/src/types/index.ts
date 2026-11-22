@@ -1,4 +1,4 @@
-export type RoleName = 'ORGANISATION_ADMIN' | 'TECHNICIAN' | 'RESIDENT';
+﻿export type RoleName = 'ORGANISATION_ADMIN' | 'TECHNICIAN' | 'RESIDENT';
 
 export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
@@ -10,6 +10,25 @@ export type TicketStatus =
   | 'ON_HOLD'
   | 'RESOLVED'
   | 'CLOSED';
+
+export type CommentVisibility = 'PUBLIC' | 'INTERNAL';
+
+export interface TicketComment {
+  id: string;
+  ticketId: string;
+  organisationId: string;
+  authorId: string;
+  visibility: CommentVisibility;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  author: {
+    id: string;
+    name: string;
+    email: string;
+    role?: { name: RoleName };
+  };
+}
 
 export interface UserSession {
   userId: string;

@@ -1,5 +1,4 @@
-import { Ticket, Property, TechnicianSummary, UserSession } from '../types';
-
+﻿import { Ticket, TicketComment, CommentVisibility, Property, TechnicianSummary, UserSession } from '../types';
 let authToken: string | null = localStorage.getItem('deskops_token');
 
 export const setAuthToken = (token: string | null) => {
@@ -100,6 +99,27 @@ export const api = {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error?.message || 'Failed to update ticket status');
+    return json.data;
+  },
+
+  async getTicketComments(ticketId: string): Promise<TicketComment[]> {
+    const res = await fetch(`/api/v1/tickets/${ticketId}/comments`, { headers: authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to fetch comments');
+    return json.data;
+  },
+
+  async createTicketComment(
+    ticketId: string,
+    payload: { content: string; visibility?: CommentVisibility }
+  ): Promise<TicketComment> {
+    const res = await fetch(`/api/v1/tickets/${ticketId}/comments`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to add comment');
     return json.data;
   },
 
