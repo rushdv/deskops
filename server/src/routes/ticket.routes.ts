@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import {
   listTickets,
   getTicketById,
@@ -7,6 +7,10 @@ import {
   assignTicket,
   updateTicketStatus,
 } from '../controllers/ticket.controller.js';
+import {
+  listTicketComments,
+  createTicketComment,
+} from '../controllers/comment.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { resolveTenant } from '../middleware/tenant.middleware.js';
 import { requireRoles } from '../middleware/rbac.middleware.js';
@@ -26,6 +30,14 @@ router.patch(
   '/:id/status',
   requireRoles([RoleName.ORGANISATION_ADMIN, RoleName.TECHNICIAN, RoleName.RESIDENT]),
   updateTicketStatus
+);
+
+// FR-1.07: Ticket Comments
+router.get('/:id/comments', listTicketComments);
+router.post(
+  '/:id/comments',
+  requireRoles([RoleName.ORGANISATION_ADMIN, RoleName.TECHNICIAN, RoleName.RESIDENT]),
+  createTicketComment
 );
 
 export default router;
