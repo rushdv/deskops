@@ -87,7 +87,7 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 
 ### 4.3 Multi-Tenant Isolation & Security Hardening (`AC-1.1`, `NFR-01`, `NFR-02`)
 - **Owner:** Developer A (Shihab)
-- **Status:** `[ ] PENDING`
+- **Status:** `[x] COMPLETED` (Verified via `server/tests/tenantIsolation.test.ts`)
 - **Files:** `server/src/middleware/tenant.middleware.ts`, `server/tests/tenantIsolation.test.ts`
 - **Requirement:**
   - All queries strictly enforce `organisationId: req.tenant.organisationId`.
@@ -108,9 +108,9 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 
 ### 4.5 Attachments & Thumbnail Pipeline (`FR-1.04`) — [Batch 3]
 - **Shared Delivery:**
-  - **Shihab:** Setup S3/R2 presigned URL generator + BullMQ thumbnail queue worker.
+  - **Shihab (Backend & S3/R2 + BullMQ):** `[x] COMPLETED` (Presigned PUT/GET generator, confirmation endpoint, and BullMQ queue)
   - **Faizul:** Implement client upload picker, validation (images/PDF, max 10MB), preview gallery, and trigger thumbnail generation job.
-- **Status:** `[ ] PENDING`
+- **Status:** `[ ] IN PROGRESS`
 
 ---
 
@@ -134,8 +134,9 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 
 ### 4.8 Real-Time Updates via Socket.io (`FR-1.06`) — [Batch 3]
 - **Shared Delivery:**
-  - **Shihab:** Socket.io server bootstrap, JWT handshake auth, room scoping (`tenant:${orgId}`).
+  - **Shihab (Server Bootstrap & Rooms):** `[x] COMPLETED` (Socket.io server, JWT handshake auth, room scoping `tenant:${orgId}` & `ticket:${ticketId}`)
   - **Faizul:** Client-side event listeners (`ticket:updated`, `comment:added`, `ticket:assigned`) to automatically refresh React state without full page reloads.
+- **Status:** `[ ] IN PROGRESS`
 
 ---
 
@@ -153,7 +154,7 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 
 | Criteria | Acceptance Standard | Status |
 | :--- | :--- | :---: |
-| **AC-1.1** | Cross-tenant ticket lookup returns `404 Not Found`. | ⬜ |
+| **AC-1.1** | Cross-tenant ticket lookup returns `404 Not Found`. | ✅ |
 | **AC-1.2** | 20 parallel assignment requests produce exactly 1 success and 19 clean conflict responses. | ✅ |
 | **AC-1.3** | Full lifecycle verified: Resident create $\rightarrow$ Admin triage $\rightarrow$ Assign $\rightarrow$ Tech in-progress $\rightarrow$ Resolve $\rightarrow$ Close / Reopen within window. | ✅ |
 | **AC-1.4** | CR-1 Duplicate ticket merge: reassociates comments/watchers, closes duplicate, records `TICKET_MERGED` event. | ⬜ |
