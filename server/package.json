@@ -19,12 +19,17 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1175.0",
+    "@aws-sdk/s3-request-presigner": "^3.1175.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^6.7.8",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.3"
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

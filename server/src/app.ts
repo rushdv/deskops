@@ -31,6 +31,10 @@ app.use(`${config.apiPrefix}/tickets`, ticketRoutes);
 import propertyRoutes from './routes/property.routes.js';
 app.use(`${config.apiPrefix}/properties`, propertyRoutes);
 
+// Attachment Routes: /api/v1/attachments
+import attachmentRoutes from './routes/attachment.routes.js';
+app.use(`${config.apiPrefix}/attachments`, attachmentRoutes);
+
 // Error Handling
 app.use(errorHandler);
 
