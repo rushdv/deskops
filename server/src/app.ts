@@ -1,4 +1,4 @@
-import express, { Express } from 'express';
+﻿import express, { Express } from 'express';
 import cors from 'cors';
 import { config } from './config/index.js';
 import healthRoutes from './routes/health.routes.js';
@@ -35,7 +35,18 @@ app.use(`${config.apiPrefix}/properties`, propertyRoutes);
 import attachmentRoutes from './routes/attachment.routes.js';
 app.use(`${config.apiPrefix}/attachments`, attachmentRoutes);
 
+// Analytics Routes: /api/v1/analytics
+import analyticsRoutes from './routes/analytics.routes.js';
+app.use(`${config.apiPrefix}/analytics`, analyticsRoutes);
+
+// Notification Routes: /api/v1/notifications
+import notificationRoutes from './routes/notification.routes.js';
+app.use(`${config.apiPrefix}/notifications`, notificationRoutes);
+
 // Error Handling
 app.use(errorHandler);
 
 export default app;
+
+
+

@@ -1,9 +1,18 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from './services/api.service';
-import { Ticket, TicketComment, CommentVisibility, Property, TechnicianSummary, UserSession, TicketStatus, TicketPriority } from './types';
-//import { Ticket, Property, TechnicianSummary, UserSession, TicketStatus, TicketPriority } from './types';
-
-
+import {
+  AnalyticsSummary,
+  CommentVisibility,
+  NotificationItem,
+  Property,
+  TechnicianSummary,
+  Ticket,
+  TicketComment,
+  TicketPriority,
+  TicketStatus,
+  UserSession,
+} from './types';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 
 export const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
@@ -13,21 +22,25 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Modals & form state
+  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  const [showAnalyticsPanel, setShowAnalyticsPanel] = useState<boolean>(true);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [showNotificationsMenu, setShowNotificationsMenu] = useState<boolean>(false);
+
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [showTriageModal, setShowTriageModal] = useState<Ticket | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<Ticket | null>(null);
   const [showResolveModal, setShowResolveModal] = useState<Ticket | null>(null);
   const [showTimelineModal, setShowTimelineModal] = useState<Ticket | null>(null);
 
-  //showTimelineModal
   const [commentsModalTicket, setCommentsModalTicket] = useState<Ticket | null>(null);
   const [ticketComments, setTicketComments] = useState<TicketComment[]>([]);
   const [commentText, setCommentText] = useState<string>('');
   const [commentVisibility, setCommentVisibility] = useState<CommentVisibility>('PUBLIC');
   const [commentsLoading, setCommentsLoading] = useState<boolean>(false);
 
-  // Form inputs
   const [newTicket, setNewTicket] = useState({
     propertyId: '',
     unitId: '',
@@ -40,13 +53,40 @@ export const App: React.FC = () => {
   const [selectedTechId, setSelectedTechId] = useState<string>('');
   const [resolutionNotes, setResolutionNotes] = useState<string>('');
 
+  const syncNotifications = async () => {
+    try {
+      const res = await api.getNotifications();
+      setNotifications(res.items);
+      setUnreadCount(res.unreadCount);
+    } catch {
+      // Ignore transient notification fetch errors on initial load
+    }
+  };
+
+  const syncAnalytics = async (role?: UserSession['role']) => {
+    if (role !== 'ORGANISATION_ADMIN' && role !== 'TECHNICIAN') {
+      setAnalyticsSummary(null);
+      return;
+    }
+    setAnalyticsLoading(true);
+    try {
+      const data = await api.getAnalyticsSummary();
+      setAnalyticsSummary(data);
+    } catch {
+      setAnalyticsSummary(null);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   const loginAs = async (email: string) => {
     setLoading(true);
     setError(null);
+    setShowNotificationsMenu(false);
     try {
       const data = await api.login(email, 'Password123!');
       setCurrentUser(data.user);
-      await refreshData();
+      await refreshData(data.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -58,9 +98,14 @@ export const App: React.FC = () => {
     setAuthToken(null);
     setCurrentUser(null);
     setTickets([]);
+    setAnalyticsSummary(null);
+    setNotifications([]);
+    setUnreadCount(0);
+    setShowNotificationsMenu(false);
   };
 
-  const refreshData = async () => {
+  const refreshData = async (activeUser?: UserSession | null) => {
+    const targetUser = activeUser ?? currentUser;
     try {
       const [ticketsData, propsData] = await Promise.all([
         api.getTickets(),
@@ -77,23 +122,51 @@ export const App: React.FC = () => {
         }));
       }
 
-      // If admin, load technicians too
-      try {
-        const techs = await api.getTechnicians();
-        setTechnicians(techs);
-        if (techs.length > 0) setSelectedTechId(techs[0].id);
-      } catch {
-        // Not admin
+      if (targetUser?.role === 'ORGANISATION_ADMIN') {
+        try {
+          const techs = await api.getTechnicians();
+          setTechnicians(techs);
+          if (techs.length > 0) setSelectedTechId((prev) => prev || techs[0].id);
+        } catch {
+          // Not admin
+        }
       }
+
+      await Promise.all([
+        syncAnalytics(targetUser?.role),
+        syncNotifications(),
+      ]);
     } catch (err) {
       console.error('Failed to refresh data', err);
     }
   };
 
-  // Initial check or default login
   useEffect(() => {
     loginAs('admin@greenfield.com');
   }, []);
+
+  const handleNotificationClick = async (item: NotificationItem) => {
+    if (item.isRead) return;
+    try {
+      await api.markAsRead(item.id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to mark notification as read');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.markAllAsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to mark all as read');
+    }
+  };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,7 +233,7 @@ export const App: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to view timeline');
     }
   };
-  //added
+
   const openCommentsModal = async (ticket: Ticket) => {
     setError(null);
     setCommentsModalTicket(ticket);
@@ -192,6 +265,7 @@ export const App: React.FC = () => {
       setCommentText('');
       const updatedList = await api.getTicketComments(commentsModalTicket.id);
       setTicketComments(updatedList);
+      await syncNotifications();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to post comment');
     } finally {
@@ -211,15 +285,17 @@ export const App: React.FC = () => {
     };
     const s = styles[status] || { bg: '#f1f5f9', color: '#334155' };
     return (
-      <span style={{
-        backgroundColor: s.bg,
-        color: s.color,
-        padding: '0.25rem 0.6rem',
-        borderRadius: '9999px',
-        fontSize: '0.75rem',
-        fontWeight: 600,
-        textTransform: 'uppercase',
-      }}>
+      <span
+        style={{
+          backgroundColor: s.bg,
+          color: s.color,
+          padding: '0.25rem 0.6rem',
+          borderRadius: '9999px',
+          fontSize: '0.75rem',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+        }}
+      >
         {status.replace('_', ' ')}
       </span>
     );
@@ -239,35 +315,44 @@ export const App: React.FC = () => {
     );
   };
 
+  const canViewAnalytics =
+    currentUser?.role === 'ORGANISATION_ADMIN' || currentUser?.role === 'TECHNICIAN';
+
   return (
-    <div style={{
-      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      backgroundColor: '#f8fafc',
-      minHeight: '100vh',
-      color: '#0f172a',
-    }}>
-      {/* Top Navbar */}
-      <header style={{
-        backgroundColor: '#ffffff',
-        borderBottom: '1px solid #e2e8f0',
-        padding: '1rem 2rem',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
+    <div
+      style={{
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        backgroundColor: '#f8fafc',
+        minHeight: '100vh',
+        color: '#0f172a',
+      }}
+    >
+      <header
+        style={{
+          backgroundColor: '#ffffff',
+          borderBottom: '1px solid #e2e8f0',
+          padding: '1rem 2rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          position: 'relative',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            backgroundColor: '#2563eb',
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 800,
-            fontSize: '1.2rem',
-          }}>
+          <div
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              backgroundColor: '#2563eb',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 800,
+              fontSize: '1.2rem',
+            }}
+          >
             D
           </div>
           <div>
@@ -275,20 +360,19 @@ export const App: React.FC = () => {
               DeskOps
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              Greenfield Facilities &bull; Phase 1 Core
+              Greenfield Facilities &bull; Batch 2
             </div>
           </div>
         </div>
 
-        {/* Demo Role Switcher */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
             Switch Persona:
           </span>
           <button
             onClick={() => loginAs('admin@greenfield.com')}
             style={{
-              padding: '0.4rem 0.75rem',
+              padding: '0.4rem 0.7rem',
               borderRadius: '6px',
               border: currentUser?.email === 'admin@greenfield.com' ? '2px solid #2563eb' : '1px solid #cbd5e1',
               backgroundColor: currentUser?.email === 'admin@greenfield.com' ? '#eff6ff' : '#ffffff',
@@ -298,12 +382,12 @@ export const App: React.FC = () => {
               fontSize: '0.75rem',
             }}
           >
-            👤 Alice Admin
+            Alice Admin
           </button>
           <button
             onClick={() => loginAs('tech@greenfield.com')}
             style={{
-              padding: '0.4rem 0.75rem',
+              padding: '0.4rem 0.7rem',
               borderRadius: '6px',
               border: currentUser?.email === 'tech@greenfield.com' ? '2px solid #2563eb' : '1px solid #cbd5e1',
               backgroundColor: currentUser?.email === 'tech@greenfield.com' ? '#eff6ff' : '#ffffff',
@@ -313,12 +397,12 @@ export const App: React.FC = () => {
               fontSize: '0.75rem',
             }}
           >
-            🛠️ Bob Technician
+            Bob Technician
           </button>
           <button
             onClick={() => loginAs('resident@greenfield.com')}
             style={{
-              padding: '0.4rem 0.75rem',
+              padding: '0.4rem 0.7rem',
               borderRadius: '6px',
               border: currentUser?.email === 'resident@greenfield.com' ? '2px solid #2563eb' : '1px solid #cbd5e1',
               backgroundColor: currentUser?.email === 'resident@greenfield.com' ? '#eff6ff' : '#ffffff',
@@ -328,8 +412,145 @@ export const App: React.FC = () => {
               fontSize: '0.75rem',
             }}
           >
-            🏠 Rachel Resident
+            Rachel Resident
           </button>
+
+          {currentUser && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                aria-label="Notifications"
+                onClick={() => setShowNotificationsMenu((prev) => !prev)}
+                style={{
+                  position: 'relative',
+                  padding: '0.4rem 0.65rem',
+                  borderRadius: '6px',
+                  border: showNotificationsMenu ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  backgroundColor: showNotificationsMenu ? '#eff6ff' : '#ffffff',
+                  cursor: 'pointer',
+                  fontSize: '0.95rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <span>🔔</span>
+                {unreadCount > 0 && (
+                  <span
+                    style={{
+                      backgroundColor: '#dc2626',
+                      color: '#ffffff',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      padding: '0.05rem 0.4rem',
+                      borderRadius: '9999px',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotificationsMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    top: 'calc(100% + 0.5rem)',
+                    width: '360px',
+                    maxHeight: '420px',
+                    overflowY: 'auto',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.15)',
+                    zIndex: 500,
+                    padding: '0.75rem',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingBottom: '0.5rem',
+                      marginBottom: '0.5rem',
+                      borderBottom: '1px solid #f1f5f9',
+                    }}
+                  >
+                    <strong style={{ fontSize: '0.85rem' }}>
+                      Notifications ({unreadCount} unread)
+                    </strong>
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleMarkAllRead}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#2563eb',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: '1.25rem 0.5rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>
+                      No notifications yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                      {notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          style={{
+                            padding: '0.6rem 0.7rem',
+                            borderRadius: '7px',
+                            border: '1px solid #e2e8f0',
+                            backgroundColor: n.isRead ? '#ffffff' : '#eff6ff',
+                            cursor: n.isRead ? 'default' : 'pointer',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: n.isRead ? 500 : 700, color: '#0f172a' }}>
+                              {n.title ? `${n.title}: ` : ''}
+                              {n.message}
+                            </span>
+                            {!n.isRead && (
+                              <span
+                                style={{
+                                  backgroundColor: '#2563eb',
+                                  color: '#ffffff',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 700,
+                                  padding: '0.1rem 0.4rem',
+                                  borderRadius: '9999px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                Unread
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>
+                            {new Date(n.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {currentUser && (
             <button
               onClick={logout}
@@ -350,27 +571,32 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1.5rem' }}>
         {error && (
-          <div style={{
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#991b1b',
-            padding: '0.75rem 1rem',
-            borderRadius: '8px',
-            marginBottom: '1.5rem',
-            fontSize: '0.875rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}>
+          <div
+            style={{
+              backgroundColor: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#991b1b',
+              padding: '0.75rem 1rem',
+              borderRadius: '8px',
+              marginBottom: '1.5rem',
+              fontSize: '0.875rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
             <span>{error}</span>
-            <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>&times;</button>
+            <button
+              onClick={() => setError(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              &times;
+            </button>
           </div>
         )}
 
-        {/* Header Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700 }}>
@@ -384,8 +610,26 @@ export const App: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
+            {canViewAnalytics && (
+              <button
+                type="button"
+                onClick={() => setShowAnalyticsPanel((prev) => !prev)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: showAnalyticsPanel ? '#eff6ff' : '#ffffff',
+                  border: showAnalyticsPanel ? '1px solid #2563eb' : '1px solid #cbd5e1',
+                  color: showAnalyticsPanel ? '#1d4ed8' : '#334155',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                }}
+              >
+                {showAnalyticsPanel ? 'Hide Analytics' : 'Analytics Summary'}
+              </button>
+            )}
             <button
-              onClick={refreshData}
+              onClick={() => refreshData()}
               disabled={loading}
               style={{
                 padding: '0.5rem 1rem',
@@ -397,7 +641,7 @@ export const App: React.FC = () => {
                 fontSize: '0.875rem',
               }}
             >
-              🔄 Refresh
+              Refresh
             </button>
             {(currentUser?.role === 'RESIDENT' || currentUser?.role === 'ORGANISATION_ADMIN') && (
               <button
@@ -419,14 +663,23 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Tickets Table / Cards */}
-        <div style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '10px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1)',
-          overflow: 'hidden',
-        }}>
+        {canViewAnalytics && showAnalyticsPanel && (
+          <AnalyticsDashboard
+            summary={analyticsSummary}
+            userRole={currentUser?.role}
+            loading={analyticsLoading}
+          />
+        )}
+
+        <div
+          style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '10px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1)',
+            overflow: 'hidden',
+          }}
+        >
           {tickets.length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
               No tickets found for this persona.
@@ -467,14 +720,13 @@ export const App: React.FC = () => {
                     </td>
                     <td style={{ padding: '1rem', color: '#334155' }}>
                       {t.assignedTechnician ? (
-                        <span style={{ fontWeight: 500 }}>🛠️ {t.assignedTechnician.name}</span>
+                        <span style={{ fontWeight: 500 }}>{t.assignedTechnician.name}</span>
                       ) : (
                         <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Unassigned</span>
                       )}
                     </td>
                     <td style={{ padding: '1rem', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                        {/* Admin Action 1: Triage */}
                         {currentUser?.role === 'ORGANISATION_ADMIN' && t.status === 'NEW' && (
                           <button
                             onClick={() => {
@@ -496,7 +748,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Admin Action 2: Assign */}
                         {currentUser?.role === 'ORGANISATION_ADMIN' && t.status === 'TRIAGED' && (
                           <button
                             onClick={() => setShowAssignModal(t)}
@@ -515,7 +766,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Technician Action 1: Start Work */}
                         {currentUser?.role === 'TECHNICIAN' && t.status === 'ASSIGNED' && (
                           <button
                             onClick={() => handleStatusChange(t.id, 'IN_PROGRESS')}
@@ -534,7 +784,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Technician Action 2: Put on Hold */}
                         {currentUser?.role === 'TECHNICIAN' && t.status === 'IN_PROGRESS' && (
                           <button
                             onClick={() => handleStatusChange(t.id, 'ON_HOLD', 'Waiting on replacement parts')}
@@ -553,7 +802,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Technician Action 3: Resume Work */}
                         {currentUser?.role === 'TECHNICIAN' && t.status === 'ON_HOLD' && (
                           <button
                             onClick={() => handleStatusChange(t.id, 'IN_PROGRESS', 'Parts arrived; work resumed')}
@@ -572,7 +820,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Technician Action 4: Resolve */}
                         {currentUser?.role === 'TECHNICIAN' && t.status === 'IN_PROGRESS' && (
                           <button
                             onClick={() => {
@@ -594,7 +841,6 @@ export const App: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Resident Action: Close or Reopen */}
                         {currentUser?.role === 'RESIDENT' && t.status === 'RESOLVED' && (
                           <>
                             <button
@@ -629,23 +875,23 @@ export const App: React.FC = () => {
                             </button>
                           </>
                         )}
-                          {/* Ticket Comments */}
-  <button
-    onClick={() => openCommentsModal(t)}
-    style={{
-      padding: '0.3rem 0.6rem',
-      borderRadius: '4px',
-      border: '1px solid #2563eb',
-      backgroundColor: '#eff6ff',
-      color: '#1d4ed8',
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      cursor: 'pointer',
-    }}
-  >
-    💬 Comments
-  </button>
-                        {/* Timeline Audit Viewer */}
+
+                        <button
+                          onClick={() => openCommentsModal(t)}
+                          style={{
+                            padding: '0.3rem 0.6rem',
+                            borderRadius: '4px',
+                            border: '1px solid #2563eb',
+                            backgroundColor: '#eff6ff',
+                            color: '#1d4ed8',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Comments
+                        </button>
+
                         <button
                           onClick={() => viewTimeline(t)}
                           style={{
@@ -659,7 +905,7 @@ export const App: React.FC = () => {
                             cursor: 'pointer',
                           }}
                         >
-                          📜 Timeline
+                          Timeline
                         </button>
                       </div>
                     </td>
@@ -671,7 +917,6 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* --- MODAL 1: Create Ticket --- */}
       {showCreateModal && (
         <div style={modalBackdropStyle}>
           <div style={modalContentStyle}>
@@ -770,7 +1015,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL 2: Triage Ticket --- */}
       {showTriageModal && (
         <div style={modalBackdropStyle}>
           <div style={modalContentStyle}>
@@ -822,7 +1066,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL 3: Assign Technician --- */}
       {showAssignModal && (
         <div style={modalBackdropStyle}>
           <div style={modalContentStyle}>
@@ -860,7 +1103,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL 4: Resolve Notes --- */}
       {showResolveModal && (
         <div style={modalBackdropStyle}>
           <div style={modalContentStyle}>
@@ -899,7 +1141,6 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL 5: Audit Event Timeline --- */}
       {showTimelineModal && (
         <div style={modalBackdropStyle}>
           <div style={{ ...modalContentStyle, maxWidth: '600px' }}>
@@ -929,24 +1170,35 @@ export const App: React.FC = () => {
                     borderLeft: idx === (showTimelineModal.events?.length || 0) - 1 ? 'none' : '2px solid #e2e8f0',
                   }}
                 >
-                  <div style={{
-                    position: 'absolute',
-                    left: '-6px',
-                    top: '2px',
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
-                    backgroundColor: '#2563eb',
-                  }} />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '-6px',
+                      top: '2px',
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      backgroundColor: '#2563eb',
+                    }}
+                  />
                   <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                     {new Date(ev.createdAt).toLocaleString()} &bull; <strong>{ev.actor.name}</strong>
                   </div>
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', marginTop: '0.2rem' }}>
                     {ev.eventType}
-                    {ev.fromStatus && ev.toStatus && ` (${ev.fromStatus} → ${ev.toStatus})`}
+                    {ev.fromStatus && ev.toStatus && ` (${ev.fromStatus} -> ${ev.toStatus})`}
                   </div>
                   {ev.metadata && (
-                    <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '0.25rem', backgroundColor: '#f1f5f9', padding: '0.4rem', borderRadius: '4px' }}>
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        color: '#475569',
+                        marginTop: '0.25rem',
+                        backgroundColor: '#f1f5f9',
+                        padding: '0.4rem',
+                        borderRadius: '4px',
+                      }}
+                    >
                       {JSON.stringify(ev.metadata)}
                     </div>
                   )}
@@ -956,8 +1208,7 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
-      //ticket
-      {/* --- MODAL: Ticket Comments --- */}
+
       {commentsModalTicket && (
         <div style={modalBackdropStyle}>
           <div style={{ ...modalContentStyle, maxWidth: '560px' }}>
@@ -998,24 +1249,30 @@ export const App: React.FC = () => {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#64748b' }}>
                       <span>
-                        <strong>{c.author.name}</strong> &bull; {new Date(c.createdAt).toLocaleString()}
+                        <strong style={{ color: '#0f172a' }}>{c.author.name}</strong>
+                        {c.author.role?.name ? ` (${c.author.role.name})` : ''}
                       </span>
-                      <span
-                        style={{
-                          padding: '0.15rem 0.5rem',
-                          borderRadius: '9999px',
-                          fontSize: '0.7rem',
-                          fontWeight: 700,
-                          backgroundColor: c.visibility === 'INTERNAL' ? '#fef3c7' : '#e0f2fe',
-                          color: c.visibility === 'INTERNAL' ? '#92400e' : '#0369a1',
-                        }}
-                      >
-                        {c.visibility}
-                      </span>
+                      <span>{new Date(c.createdAt).toLocaleString()}</span>
                     </div>
-                    <div style={{ marginTop: '0.35rem', fontSize: '0.875rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.875rem', color: '#1e293b', whiteSpace: 'pre-wrap' }}>
                       {c.content}
                     </div>
+                    {c.visibility === 'INTERNAL' && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginTop: '0.35rem',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          color: '#b45309',
+                          backgroundColor: '#fef3c7',
+                          padding: '0.1rem 0.45rem',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        INTERNAL NOTE
+                      </span>
+                    )}
                   </div>
                 ))
               )}
@@ -1030,8 +1287,8 @@ export const App: React.FC = () => {
                     onChange={(e) => setCommentVisibility(e.target.value as CommentVisibility)}
                     style={inputStyle}
                   >
-                    <option value="PUBLIC">PUBLIC (Visible to Resident & Staff)</option>
-                    <option value="INTERNAL">INTERNAL (Staff Only)</option>
+                    <option value="PUBLIC">PUBLIC (Visible to resident)</option>
+                    <option value="INTERNAL">INTERNAL (Staff only)</option>
                   </select>
                 </div>
               )}
@@ -1041,7 +1298,7 @@ export const App: React.FC = () => {
                 <textarea
                   rows={3}
                   required
-                  placeholder="Write an update or note..."
+                  placeholder="Write a comment or update..."
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
                   style={inputStyle}
@@ -1061,7 +1318,7 @@ export const App: React.FC = () => {
                   Close
                 </button>
                 <button type="submit" disabled={commentsLoading} style={primaryBtnStyle}>
-                  {commentsLoading ? 'Posting...' : 'Post Comment'}
+                  Post Comment
                 </button>
               </div>
             </form>

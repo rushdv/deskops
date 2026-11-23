@@ -96,6 +96,36 @@ export interface Ticket {
   events?: TicketEvent[];
 }
 
+export interface TechnicianWorkloadItem {
+  technicianId: string;
+  technicianName: string;
+  technicianEmail: string;
+  activeCount: number;
+}
+
+export interface AnalyticsSummary {
+  totals: {
+    totalTickets: number;
+    activeWorkInProgress: number;
+    resolvedOrClosed: number;
+    pendingTriage: number;
+  };
+  byStatus: Record<TicketStatus, number>;
+  byPriority: Record<TicketPriority, number>;
+  technicianWorkload: TechnicianWorkloadItem[];
+}
+
+export interface NotificationItem {
+  id: string;
+  organisationId: string;
+  recipientId: string;
+  ticketId?: string | null;
+  title?: string | null;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
 export interface BackendHealth {
   status: 'ok' | 'error';
   timestamp: string;
