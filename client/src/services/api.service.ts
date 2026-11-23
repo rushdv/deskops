@@ -1,4 +1,14 @@
-﻿import { Ticket, TicketComment, CommentVisibility, Property, TechnicianSummary, UserSession } from '../types';
+﻿import {
+  AnalyticsSummary,
+  CommentVisibility,
+  NotificationItem,
+  Property,
+  TechnicianSummary,
+  Ticket,
+  TicketComment,
+  UserSession,
+} from '../types';
+
 let authToken: string | null = localStorage.getItem('deskops_token');
 
 export const setAuthToken = (token: string | null) => {
@@ -134,6 +144,45 @@ export const api = {
     const res = await fetch('/api/v1/properties/technicians', { headers: authHeaders() });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error?.message || 'Failed to fetch technicians');
+    return json.data;
+  },
+
+  async getAnalyticsSummary(): Promise<AnalyticsSummary> {
+    const res = await fetch('/api/v1/analytics/summary', { headers: authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to fetch analytics summary');
+    return json.data;
+  },
+
+  async getNotifications(): Promise<{ items: NotificationItem[]; unreadCount: number }> {
+    const res = await fetch('/api/v1/notifications', { headers: authHeaders() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to fetch notifications');
+    const items: NotificationItem[] = Array.isArray(json.data) ? json.data : [];
+    const unreadCount =
+      typeof json.unreadCount === 'number'
+        ? json.unreadCount
+        : items.filter((n) => !n.isRead).length;
+    return { items, unreadCount };
+  },
+
+  async markAsRead(id: string): Promise<NotificationItem> {
+    const res = await fetch(`/api/v1/notifications/${id}/read`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to mark notification as read');
+    return json.data;
+  },
+
+  async markAllAsRead(): Promise<{ updatedCount: number }> {
+    const res = await fetch('/api/v1/notifications/read-all', {
+      method: 'PATCH',
+      headers: authHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || 'Failed to mark all notifications as read');
     return json.data;
   },
 };
