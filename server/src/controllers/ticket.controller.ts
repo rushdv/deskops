@@ -176,3 +176,42 @@ export const updateTicketStatus = async (req: AuthenticatedRequest, res: Respons
     });
   }
 };
+
+export const mergeTickets = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const primaryTicketId = req.params.id;
+    const { duplicateTicketId, reason } = req.body;
+
+    if (!duplicateTicketId) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'ERR_VALIDATION_FAILED', message: 'duplicateTicketId in request body is required' },
+      });
+      return;
+    }
+
+    const result = await TicketService.mergeTickets(
+      req.tenant!,
+      req.user!,
+      primaryTicketId,
+      duplicateTicketId,
+      reason
+    );
+
+    res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Ticket merge failed';
+    const isStateError = message.includes('ERR_ILLEGAL_STATE_TRANSITION');
+    const isValidationError = message.includes('ERR_VALIDATION_FAILED');
+    const code = isStateError
+      ? 'ERR_ILLEGAL_STATE_TRANSITION'
+      : isValidationError
+      ? 'ERR_VALIDATION_FAILED'
+      : 'ERR_MERGE_FAILED';
+
+    res.status(isStateError ? 422 : 400).json({
+      success: false,
+      error: { code, message },
+    });
+  }
+};

@@ -35,6 +35,15 @@ app.use(`${config.apiPrefix}/properties`, propertyRoutes);
 import attachmentRoutes from './routes/attachment.routes.js';
 app.use(`${config.apiPrefix}/attachments`, attachmentRoutes);
 
+// Interactive OpenAPI Documentation (NFR-04, D-1.4)
+import swaggerUi from 'swagger-ui-express';
+import { openApiSpec } from './docs/openapi.js';
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec));
+app.get('/docs.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(openApiSpec);
+});
+
 // Error Handling
 app.use(errorHandler);
 

@@ -116,18 +116,18 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 
 ### 4.6 Duplicate Ticket Merge (`CR-1`, `AC-1.4`)
 - **Owner:** Developer A (Shihab)
-- **Status:** `[ ] PENDING`
+- **Status:** `[x] COMPLETED` (Verified via `server/tests/ticketMerge.test.ts`)
 - **Files:** `server/src/controllers/ticket.controller.ts`, `server/src/services/ticket.service.ts`
 - **Requirement:**
   - `POST /api/v1/tickets/:id/merge`
   - Atomic transaction: verify both tickets belong to same tenant, reassociate comments and watchers from duplicate to primary, set duplicate status to `CLOSED`, and append `TICKET_MERGED` event linking both tickets.
-  - Include concise CR-1 impact estimate in release notes.
+  - Include concise CR-1 impact estimate in release notes (`docs/cr-1-impact.md`).
 
 ---
 
 ### 4.7 Client-Specific Business Rule (`FR-1.08`, `AC-1.5`)
 - **Owner:** Developer A (Shihab)
-- **Status:** `[ ] TBD` (To be confirmed from LogicVeda Team Workspace for Team 6)
+- **Status:** `[x] COMPLETED` (Verified via `server/tests/ruleInterceptor.test.ts`)
 - **Requirement:** Implement assigned rule with dedicated schema migration (if needed), validation logic, and automated test.
 
 ---
@@ -157,10 +157,10 @@ Instead of a horizontal frontend/backend divide, tasks are divided **vertically 
 | **AC-1.1** | Cross-tenant ticket lookup returns `404 Not Found`. | ✅ |
 | **AC-1.2** | 20 parallel assignment requests produce exactly 1 success and 19 clean conflict responses. | ✅ |
 | **AC-1.3** | Full lifecycle verified: Resident create $\rightarrow$ Admin triage $\rightarrow$ Assign $\rightarrow$ Tech in-progress $\rightarrow$ Resolve $\rightarrow$ Close / Reopen within window. | ✅ |
-| **AC-1.4** | CR-1 Duplicate ticket merge: reassociates comments/watchers, closes duplicate, records `TICKET_MERGED` event. | ⬜ |
-| **AC-1.5** | Confirmed Team 6 client-specific rule implemented and backed by automated tests. | ⬜ |
-| **NFR-04** | API standardization: `/api/v1` prefix, uniform error envelopes, interactive OpenAPI at `/docs`. | ⬜ |
+| **AC-1.4** | CR-1 Duplicate ticket merge: reassociates comments/watchers, closes duplicate, records `TICKET_MERGED` event. | ✅ |
+| **AC-1.5** | Confirmed Team 6 client-specific rule implemented and backed by automated tests. | ✅ |
+| **NFR-04** | API standardization: `/api/v1` prefix, uniform error envelopes, interactive OpenAPI at `/docs`. | ✅ |
 | **NFR-05** | Lighthouse performance, accessibility, best practices, and SEO scores $\ge 90$. | ⬜ |
-| **NFR-06** | Redis & BullMQ asynchronous queues with Dead-Letter Queue (DLQ) retry inspection. | ⬜ |
+| **NFR-06** | Redis & BullMQ asynchronous queues with Dead-Letter Queue (DLQ) retry inspection. | ✅ |
 | **NFR-08** | Automated test coverage: $\ge 70\%$ backend service test coverage (Vitest) + Playwright E2E suite. | ⬜ |
 | **D-1.1 – D-1.9** | Git tag `v1.0.0`, passing CI workflow, live Staging/Production URLs on Render, test credentials, OpenAPI `/docs`, Test Report, Runbook, and Release Notes submitted before **07 Dec 2026, 11:59 PM IST**. | ⬜ |

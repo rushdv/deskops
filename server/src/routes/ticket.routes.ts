@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import {
   listTickets,
   getTicketById,
@@ -6,6 +6,7 @@ import {
   triageTicket,
   assignTicket,
   updateTicketStatus,
+  mergeTickets,
 } from '../controllers/ticket.controller.js';
 import {
   listTicketComments,
@@ -31,6 +32,9 @@ router.patch(
   requireRoles([RoleName.ORGANISATION_ADMIN, RoleName.TECHNICIAN, RoleName.RESIDENT]),
   updateTicketStatus
 );
+
+// CR-1: Duplicate Ticket Merge (AC-1.4)
+router.post('/:id/merge', requireRoles([RoleName.ORGANISATION_ADMIN]), mergeTickets);
 
 // FR-1.07: Ticket Comments
 router.get('/:id/comments', listTicketComments);
